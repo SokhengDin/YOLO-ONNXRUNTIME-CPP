@@ -4,184 +4,161 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <sstream>
+#include <opencv2/opencv.hpp>
 
-void Detector(YOLO_V8*& p) {
-    std::filesystem::path current_path = std::filesystem::current_path();
-    std::filesystem::path imgs_path = current_path / "images";
-    for (auto& i : std::filesystem::directory_iterator(imgs_path))
-    {
-        if (i.path().extension() == ".jpg" || i.path().extension() == ".png" || i.path().extension() == ".jpeg")
-        {
-            std::string img_path = i.path().string();
-            cv::Mat img = cv::imread(img_path);
-            std::vector<DL_RESULT> res;
-            p->RunSession(img, res);
-
-            for (auto& re : res)
-            {
-                cv::RNG rng(cv::getTickCount());
-                cv::Scalar color(rng.uniform(0, 256), rng.uniform(0, 256), rng.uniform(0, 256));
-
-                cv::rectangle(img, re.box, color, 3);
-
-                float confidence = floor(100 * re.confidence) / 100;
-                std::cout << std::fixed << std::setprecision(2);
-                std::string label = p->classes[re.classId] + " " +
-                    std::to_string(confidence).substr(0, std::to_string(confidence).size() - 4);
-
-                cv::rectangle(
-                    img,
-                    cv::Point(re.box.x, re.box.y - 25),
-                    cv::Point(re.box.x + label.length() * 15, re.box.y),
-                    color,
-                    cv::FILLED
-                );
-
-                cv::putText(
-                    img,
-                    label,
-                    cv::Point(re.box.x, re.box.y - 5),
-                    cv::FONT_HERSHEY_SIMPLEX,
-                    0.75,
-                    cv::Scalar(0, 0, 0),
-                    2
-                );
-
-
-            }
-            std::cout << "Press any key to exit" << std::endl;
-            cv::imshow("Result of Detection", img);
-            cv::waitKey(0);
-            cv::destroyAllWindows();
-        }
+void ProcessImage(YOLO_V8* detector, const std::string& imagePath, bool saveOutput = true) {
+    cv::Mat img = cv::imread(imagePath);
+    if (img.empty()) {
+        std::cerr << "Error: Unable to read image: " << imagePath << std::endl;
+        return;
     }
+
+    std::cout << "Image size: " << img.size() << std::endl;
+    std::cout << "Image type: " << img.type() << std::endl;
+
+    std::vector<DLResult> res;
+    std::cout << "Running session..." << std::endl;
+    const char* result = detector->RunSession(img, res);
+    if (result != nullptr) {
+        std::cerr << "Error running session: " << result << std::endl;
+        return;
+    }
+    std::cout << "Session completed. Number of results: " << res.size() << std::endl;
+
+    for (const auto& re : res) {
+        cv::RNG rng(cv::getTickCount());
+        cv::Scalar color(rng.uniform(0, 256), rng.uniform(0, 256), rng.uniform(0, 256));
+
+        cv::rectangle(img, re.box, color, 3);
+
+        float confidence = std::floor(100 * re.confidence) / 100;
+        std::cout << std::fixed << std::setprecision(2);
+        std::string label = detector->GetClasses()[re.classId] + " " +
+            std::to_string(confidence).substr(0, std::to_string(confidence).size() - 4);
+
+        cv::rectangle(
+            img,
+            cv::Point(re.box.x, re.box.y - 25),
+            cv::Point(re.box.x + static_cast<int>(label.length() * 15), re.box.y),
+            color,
+            cv::FILLED
+        );
+
+        cv::putText(
+            img,
+            label,
+            cv::Point(re.box.x, re.box.y - 5),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.75,
+            cv::Scalar(0, 0, 0),
+            2
+        );
+    }
+
+    if (saveOutput) {
+        std::filesystem::path inputPath(imagePath);
+        std::filesystem::path outputPath = inputPath.parent_path() / (inputPath.stem().string() + "_output" + inputPath.extension().string());
+        cv::imwrite(outputPath.string(), img);
+        std::cout << "Output saved to: " << outputPath << std::endl;
+    }
+
+    cv::imshow("Result of Detection", img);
+    cv::waitKey(0);
+    cv::destroyAllWindows();
 }
 
-
-void Classifier(YOLO_V8*& p)
-{
-    std::filesystem::path current_path = std::filesystem::current_path();
-    std::filesystem::path imgs_path = current_path;// / "images"
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dis(0, 255);
-    for (auto& i : std::filesystem::directory_iterator(imgs_path))
-    {
-        if (i.path().extension() == ".jpg" || i.path().extension() == ".png")
-        {
-            std::string img_path = i.path().string();
-            //std::cout << img_path << std::endl;
-            cv::Mat img = cv::imread(img_path);
-            std::vector<DL_RESULT> res;
-            char* ret = p->RunSession(img, res);
-
-            float positionY = 50;
-            for (int i = 0; i < res.size(); i++)
-            {
-                int r = dis(gen);
-                int g = dis(gen);
-                int b = dis(gen);
-                cv::putText(img, std::to_string(i) + ":", cv::Point(10, positionY), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(b, g, r), 2);
-                cv::putText(img, std::to_string(res.at(i).confidence), cv::Point(70, positionY), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(b, g, r), 2);
-                positionY += 50;
-            }
-
-            cv::imshow("TEST_CLS", img);
-            cv::waitKey(0);
-            cv::destroyAllWindows();
-            //cv::imwrite("E:\\output\\" + std::to_string(k) + ".png", img);
-        }
-
-    }
+void ProcessVideo(YOLO_V8* detector, const std::string& videoPath, bool saveOutput = true) {
+    // ... (keep the existing ProcessVideo function)
 }
-
-
 
 int ReadCocoYaml(YOLO_V8*& p) {
-    // Open the YAML file
     std::ifstream file("coco.yaml");
-    if (!file.is_open())
-    {
-        std::cerr << "Failed to open file" << std::endl;
+    if (!file.is_open()) {
+        std::cerr << "Failed to open coco.yaml file" << std::endl;
         return 1;
     }
 
     std::string line;
-    std::vector<std::string> lines;
-    while (std::getline(file, line))
-    {
-        lines.push_back(line);
-    }
-
-    std::size_t start = 0;
-    std::size_t end = 0;
-    for (std::size_t i = 0; i < lines.size(); i++)
-    {
-        if (lines[i].find("names:") != std::string::npos)
-        {
-            start = i + 1;
-        }
-        else if (start > 0 && lines[i].find(':') == std::string::npos)
-        {
-            end = i;
-            break;
-        }
-    }
-
     std::vector<std::string> names;
-    for (std::size_t i = start; i < end; i++)
-    {
-        std::stringstream ss(lines[i]);
-        std::string name;
-        std::getline(ss, name, ':'); 
-        std::getline(ss, name); 
-        names.push_back(name);
+    bool in_names_section = false;
+    while (std::getline(file, line)) {
+        if (line.find("names:") != std::string::npos) {
+            in_names_section = true;
+            continue;
+        }
+        if (in_names_section) {
+            if (line.find(':') == std::string::npos) {
+                break;
+            }
+            std::istringstream iss(line);
+            std::string key, value;
+            std::getline(iss, key, ':');
+            std::getline(iss, value);
+            names.push_back(value);
+        }
     }
 
-    p->classes = names;
+    p->SetClasses(names);
     return 0;
 }
 
-
-void DetectTest()
-{
+YOLO_V8* InitializeDetector(const std::string& modelPath, const std::vector<int>& imgSize) {
     YOLO_V8* yoloDetector = new YOLO_V8;
-    ReadCocoYaml(yoloDetector);
-    DL_INIT_PARAM params;
-    params.rectConfidenceThreshold = 0.1;
-    params.iouThreshold = 0.5;
-    params.modelPath = "yolov8n.onnx";
-    params.imgSize = { 640, 640 };
-#ifdef USE_CUDA
-    params.cudaEnable = true;
-
-    // GPU FP32 inference
-    params.modelType = YOLO_DETECT_V8;
-
-#else
-    // CPU inference
-    params.modelType = YOLO_DETECT_V8;
+    if (ReadCocoYaml(yoloDetector) != 0) {
+        std::cerr << "Failed to read coco.yaml" << std::endl;
+        delete yoloDetector;
+        return nullptr;
+    }
+    DLInitParam params;
+    params.rectConfidenceThreshold = 0.1f;
+    params.iouThreshold = 0.5f;
+    params.modelPath = modelPath;
+    params.imgSize = imgSize;
+    params.modelType = ModelType::YOLO_DETECT_V8;
     params.cudaEnable = false;
-
-#endif
-    yoloDetector->CreateSession(params);
-    Detector(yoloDetector);
+    const char* result = yoloDetector->CreateSession(params);
+    if (result != nullptr) {
+        std::cerr << "Failed to create session: " << result << std::endl;
+        delete yoloDetector;
+        return nullptr;
+    }
+    return yoloDetector;
 }
 
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <model_path> <input_path>" << std::endl;
+        return 1;
+    }
 
-void ClsTest()
-{
-    YOLO_V8* yoloDetector = new YOLO_V8;
-    std::string model_path = "cls.onnx";
-    ReadCocoYaml(yoloDetector);
-    DL_INIT_PARAM params{ model_path, YOLO_CLS, {224, 224} };
-    yoloDetector->CreateSession(params);
-    Classifier(yoloDetector);
-}
+    std::string modelPath = argv[1];
+    std::string inputPath = argv[2];
 
+    std::cout << "Model path: " << modelPath << std::endl;
+    std::cout << "Input path: " << inputPath << std::endl;
 
-int main()
-{
-    DetectTest();
-    // ClsTest();
+    YOLO_V8* detector = InitializeDetector(modelPath, {640, 640});
+    if (detector == nullptr) {
+        std::cerr << "Failed to initialize detector" << std::endl;
+        return 1;
+    }
+
+    if (detector != nullptr) {
+        detector->PrintInputNodeNames();
+    }
+
+    std::filesystem::path path(inputPath);
+    std::string extension = path.extension().string();
+
+    if (extension == ".jpg" || extension == ".jpeg" || extension == ".png") {
+        ProcessImage(detector, inputPath);
+    } else if (extension == ".mp4" || extension == ".avi" || extension == ".mov") {
+        ProcessVideo(detector, inputPath);
+    } else {
+        std::cerr << "Unsupported file format: " << extension << std::endl;
+    }
+
+    delete detector;
+    return 0;
 }

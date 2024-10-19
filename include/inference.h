@@ -48,6 +48,13 @@ public:
     void SetClasses(const std::vector<std::string>& classes) { this->classes = classes; }
     const std::vector<std::string>& GetClasses() const { return classes; }
 
+    void PrintInputNodeNames() const {
+        std::cout << "Input node names:" << std::endl;
+        for (const auto& name : inputNodeNames) {
+            std::cout << " - " << name << std::endl;
+        }
+    }
+
 private:
     const char* PreProcess(const cv::Mat& iImg, std::vector<int> iImgSize, cv::Mat& oImg);
     template<typename T>
@@ -68,7 +75,3 @@ private:
 
     std::vector<std::string> classes;
 };
-
-// Template function declaration
-template<typename T>
-const char* YOLO_V8::TensorProcess(const T* inputData, const std::vector<int64_t>& inputShape, std::vector<DLResult>& oResult);

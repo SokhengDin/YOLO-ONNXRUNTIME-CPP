@@ -109,7 +109,6 @@ const char* YOLO_V8::TensorProcess(const T* inputData, const std::vector<int64_t
         Ort::Value inputTensor = Ort::Value::CreateTensor<T>(memoryInfo, const_cast<T*>(inputData),
             inputShape[0] * inputShape[1] * inputShape[2] * inputShape[3], inputShape.data(), inputShape.size());
 
-        // Use the correct input name "images"
         const char* input_name = inputNodeNames[0];
         const char* output_name = outputNodeNames[0];
         auto outputTensors = session->Run(Ort::RunOptions{nullptr}, &input_name, &inputTensor, 1, &output_name, 1);
@@ -121,6 +120,7 @@ const char* YOLO_V8::TensorProcess(const T* inputData, const std::vector<int64_t
         return "[YOLO_V8]: Error during tensor processing";
     }
 }
+
 
 const char* YOLO_V8::PostProcess(const Ort::Value& outputTensor, std::vector<DLResult>& oResult) {
     Ort::TypeInfo typeInfo = outputTensor.GetTypeInfo();
