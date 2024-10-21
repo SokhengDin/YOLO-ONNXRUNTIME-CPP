@@ -48,15 +48,19 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN wget -O /app/coco.yaml https://raw.githubusercontent.com/ultralytics/ultralytics/main/ultralytics/cfg/datasets/coco.yaml
+# Download coco.yaml
+RUN wget -O coco.yaml https://raw.githubusercontent.com/ultralytics/ultralytics/main/ultralytics/cfg/datasets/coco.yaml
 
+# Copy project files
 COPY . /app
 
+# Update CMakeLists.txt to use the correct ONNXRUNTIME_ROOT
 RUN sed -i 's|${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}|/opt/onnxruntime|g' CMakeLists.txt
 
 # Build the project
-RUN rm -rf build && mkdir build && cd build \
-    && cmake -DUSE_CUDA=OFF -DLINUX=TRUE .. \
+RUN mkdir build && cd build \
+    && cmake -DUSE_CUDA=OFF .. \
     && make -j$(nproc)
 
-CMD ["/bin/bash"]
+# Set the entrypoint to run our executable
+ENTRYPOINT ["/app/build/Yolo8OnnxRuntimeCPPInference"]

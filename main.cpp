@@ -1,164 +1,149 @@
 #include <iostream>
 #include <iomanip>
-#include "inference.h"
 #include <filesystem>
 #include <fstream>
 #include <random>
-#include <sstream>
-#include <opencv2/opencv.hpp>
+#include "inference.h"
 
-void ProcessImage(YOLO_V8* detector, const std::string& imagePath, bool saveOutput = true) {
-    cv::Mat img = cv::imread(imagePath);
-    if (img.empty()) {
-        std::cerr << "Error: Unable to read image: " << imagePath << std::endl;
-        return;
+
+// read yaml
+std::vector<std::string> ReadClassNames(const std::string& yamlPath) {
+    std::ifstream file(yamlPath);
+
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open file" << yamlPath << std::endl;
+        return {};
     }
 
-    std::cout << "Image size: " << img.size() << std::endl;
-    std::cout << "Image type: " << img.type() << std::endl;
+    std::vector<std::string> names;
 
-    std::vector<DLResult> res;
-    std::cout << "Running session..." << std::endl;
-    const char* result = detector->RunSession(img, res);
-    if (result != nullptr) {
-        std::cerr << "Error running session: " << result << std::endl;
-        return;
+    std::string line;
+
+    bool nameSection = false;
+
+    while (std::getline(file, line)) {
+        if (line.find("names:") != std::string::npos) {
+            nameSection = true;
+            continue;
+        }
+
+        if (nameSection && line.find(':') != std::string::npos) {
+            std::string name = line.substr(line.find(':') + 1);
+            name.erase(0, name.find_first_not_of(" \t"));
+            names.push_back(name);
+        }
+
     }
-    std::cout << "Session completed. Number of results: " << res.size() << std::endl;
 
-    for (const auto& re : res) {
+    return names;
+}
+
+
+void VisualizeDetection(cv::Mat& img, const std::vector<DL_RESULT>& results, const std::vector<std::string>& classes)
+{
+    for (const auto& result: results)
+    {
         cv::RNG rng(cv::getTickCount());
         cv::Scalar color(rng.uniform(0, 256), rng.uniform(0, 256), rng.uniform(0, 256));
 
-        cv::rectangle(img, re.box, color, 3);
+        cv::rectangle(img, result.box, color, 2);
 
-        float confidence = std::floor(100 * re.confidence) / 100;
-        std::cout << std::fixed << std::setprecision(2);
-        std::string label = detector->GetClasses()[re.classId] + " " +
-            std::to_string(confidence).substr(0, std::to_string(confidence).size() - 4);
+        std::string label   = classes[result.classId] + " " + std::to_string(static_cast<int>(result.confidence * 100)) + "%";
 
-        cv::rectangle(
-            img,
-            cv::Point(re.box.x, re.box.y - 25),
-            cv::Point(re.box.x + static_cast<int>(label.length() * 15), re.box.y),
-            color,
-            cv::FILLED
-        );
 
-        cv::putText(
-            img,
-            label,
-            cv::Point(re.box.x, re.box.y - 5),
-            cv::FONT_HERSHEY_SIMPLEX,
-            0.75,
-            cv::Scalar(0, 0, 0),
-            2
-        );
+        int baseline        = 0;
+        cv::Size labelSize  = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+        cv::rectangle(img, 
+                      cv::Point(result.box.x, result.box.y - labelSize.height - 5),
+                      cv::Point(result.box.x + labelSize.width, result.box.y),
+                      color, cv::FILLED);
+
+
+        cv::putText(img, label, cv::Point(result.box.x, result.box.y - 5),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+    }
+}
+
+void VisualizeClassification(cv::Mat& img, const std::vector<DL_RESULT>& results, const std::vector<std::string>& classes) {
+    int positionY = 30;
+    for (size_t i = 0; i < std::min(results.size(), size_t(5)); i++) {
+        cv::RNG rng(cv::getTickCount() + i);
+        cv::Scalar color(rng.uniform(0, 256), rng.uniform(0, 256), rng.uniform(0, 256));
+        
+        std::string label = classes[results[i].classId] + ": " + 
+                            std::to_string(static_cast<int>(results[i].confidence * 100)) + "%";
+        
+        cv::putText(img, label, cv::Point(10, positionY), 
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
+        positionY += 30;
+    }
+}
+
+int main(int argc, char* argv[])
+{
+    if (argc < 4)
+    {
+        std::cerr << "Usage: " << argv[0] << " <detect/classify> <model_path> <input_path> [yaml_path]" << std::endl;
+        return 1;
     }
 
-    if (saveOutput) {
-        std::filesystem::path inputPath(imagePath);
-        std::filesystem::path outputPath = inputPath.parent_path() / (inputPath.stem().string() + "_output" + inputPath.extension().string());
-        cv::imwrite(outputPath.string(), img);
-        std::cout << "Output saved to: " << outputPath << std::endl;
+    std::string task        = argv[1];
+    std::string modelPath   = argv[2];
+    std::string inputPath   = argv[3];
+    std::string yamlPath    = (argc > 4) ? argv[4] : "coco.yaml";
+
+    YOLO8Onnx yolo;
+    DL_INIT_PARAM params;
+    params.modelPath = modelPath;
+    params.imgSize = (task == "detect") ? std::vector<int>{640, 640} : std::vector<int>{224, 224};
+    params.rectConfidenceThreshold = 0.25;
+    params.iouThreshold = 0.45;
+    params.modelType = (task == "detect") ? YOLO_DETECT_V8 : YOLO_CLS;
+
+#ifdef USE_CUDA
+    params.cudaEnable = true;
+#else
+    params.cudaEnable = false;
+#endif
+
+    char* ret           = yolo.CreateSession(params);
+    if (ret != RET_OK)
+    {
+        std::cerr << "Failed to create session: " << ret << std::endl;
+        return 1;
     }
 
-    cv::imshow("Result of Detection", img);
+    std::vector<std::string> classes    = ReadClassNames(yamlPath);
+    if (classes.empty())
+    {
+        std::cerr << "Failed to read class names" << std::endl;
+        return 1;
+    }
+
+
+    std::vector<DL_RESULT> results;
+    ret     = yolo.ProcessInput(inputPath, results);
+
+    if (ret != RET_OK) {
+        std::cerr << "Failed to process input: " << ret << std::endl;
+        return 1;
+    }
+
+    // Vis resutls
+
+    cv::Mat img = cv::imread(inputPath);
+    
+    if (task == "detect") {
+        VisualizeDetection(img, results, classes);
+    } else {
+        VisualizeClassification(img, results, classes);
+    }
+
+    cv::imshow("YOLO8 Result", img);
     cv::waitKey(0);
     cv::destroyAllWindows();
-}
 
-void ProcessVideo(YOLO_V8* detector, const std::string& videoPath, bool saveOutput = true) {
-    // ... (keep the existing ProcessVideo function)
-}
-
-int ReadCocoYaml(YOLO_V8*& p) {
-    std::ifstream file("coco.yaml");
-    if (!file.is_open()) {
-        std::cerr << "Failed to open coco.yaml file" << std::endl;
-        return 1;
-    }
-
-    std::string line;
-    std::vector<std::string> names;
-    bool in_names_section = false;
-    while (std::getline(file, line)) {
-        if (line.find("names:") != std::string::npos) {
-            in_names_section = true;
-            continue;
-        }
-        if (in_names_section) {
-            if (line.find(':') == std::string::npos) {
-                break;
-            }
-            std::istringstream iss(line);
-            std::string key, value;
-            std::getline(iss, key, ':');
-            std::getline(iss, value);
-            names.push_back(value);
-        }
-    }
-
-    p->SetClasses(names);
     return 0;
-}
 
-YOLO_V8* InitializeDetector(const std::string& modelPath, const std::vector<int>& imgSize) {
-    YOLO_V8* yoloDetector = new YOLO_V8;
-    if (ReadCocoYaml(yoloDetector) != 0) {
-        std::cerr << "Failed to read coco.yaml" << std::endl;
-        delete yoloDetector;
-        return nullptr;
-    }
-    DLInitParam params;
-    params.rectConfidenceThreshold = 0.1f;
-    params.iouThreshold = 0.5f;
-    params.modelPath = modelPath;
-    params.imgSize = imgSize;
-    params.modelType = ModelType::YOLO_DETECT_V8;
-    params.cudaEnable = false;
-    const char* result = yoloDetector->CreateSession(params);
-    if (result != nullptr) {
-        std::cerr << "Failed to create session: " << result << std::endl;
-        delete yoloDetector;
-        return nullptr;
-    }
-    return yoloDetector;
-}
-
-int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <model_path> <input_path>" << std::endl;
-        return 1;
-    }
-
-    std::string modelPath = argv[1];
-    std::string inputPath = argv[2];
-
-    std::cout << "Model path: " << modelPath << std::endl;
-    std::cout << "Input path: " << inputPath << std::endl;
-
-    YOLO_V8* detector = InitializeDetector(modelPath, {640, 640});
-    if (detector == nullptr) {
-        std::cerr << "Failed to initialize detector" << std::endl;
-        return 1;
-    }
-
-    if (detector != nullptr) {
-        detector->PrintInputNodeNames();
-    }
-
-    std::filesystem::path path(inputPath);
-    std::string extension = path.extension().string();
-
-    if (extension == ".jpg" || extension == ".jpeg" || extension == ".png") {
-        ProcessImage(detector, inputPath);
-    } else if (extension == ".mp4" || extension == ".avi" || extension == ".mov") {
-        ProcessVideo(detector, inputPath);
-    } else {
-        std::cerr << "Unsupported file format: " << extension << std::endl;
-    }
-
-    delete detector;
-    return 0;
 }

@@ -1,47 +1,88 @@
 cmake_minimum_required(VERSION 3.5)
-
-set(PROJECT_NAME Yolov8OnnxRuntimeCPPInference)
+set(PROJECT_NAME Yolo8OnnxRuntimeCPPInference)
 project(${PROJECT_NAME} VERSION 0.0.1 LANGUAGES CXX)
 
+# Support C++17 for using filesystem
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
+# OpenCV
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-option(USE_CUDA "Enable CUDA support" OFF)
-if (USE_CUDA)
+# Compile CUDA for FP16 inference if needed
+option(USE_CUDA "Enable CUDA support" ON)
+if (NOT APPLE AND USE_CUDA)
     find_package(CUDA REQUIRED)
     include_directories(${CUDA_INCLUDE_DIRS})
     add_definitions(-DUSE_CUDA)
+else ()
+    set(USE_CUDA OFF)
 endif ()
 
-set(ONNXRUNTIME_ROOT /opt/onnxruntime)
-include_directories(${ONNXRUNTIME_ROOT}/include)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wno-write-strings)
+endif()
 
-find_package(Python COMPONENTS Interpreter Development REQUIRED)
+# ONNXRUNTIME
+set(ONNXRUNTIME_VERSION 1.15.1)
+if (WIN32)
+    if (USE_CUDA)
+        set(ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-gpu-${ONNXRUNTIME_VERSION}")
+    else ()
+        set(ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-${ONNXRUNTIME_VERSION}")
+    endif ()
+elseif (UNIX AND NOT APPLE)
+    if (USE_CUDA)
+        set(ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}")
+    else ()
+        set(ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}")
+    endif ()
+elseif (APPLE)
+    set(ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-osx-arm64-${ONNXRUNTIME_VERSION}")
+else ()
+    message(FATAL_ERROR "Unsupported platform. Please set ONNXRUNTIME_ROOT manually.")
+endif ()
+
+include_directories(${PROJECT_NAME} ${ONNXRUNTIME_ROOT}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(PROJECT_SOURCES
-    inference.cpp
     main.cpp
+    inference.cpp
 )
 
-# Add the executable
-add_executable(yolov8_onnx_module ${PROJECT_SOURCES})
+add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
 
-# Include directories
-target_include_directories(yolov8_onnx_module PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-# Link libraries
-target_link_libraries(yolov8_onnx_module PRIVATE ${OpenCV_LIBS})
-target_link_libraries(yolov8_onnx_module PRIVATE ${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so)
-
-if (USE_CUDA)
-    target_link_libraries(yolov8_onnx_module PRIVATE ${CUDA_LIBRARIES})
+if (WIN32)
+    target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib)
+    if (USE_CUDA)
+        target_link_libraries(${PROJECT_NAME} ${CUDA_LIBRARIES})
+    endif ()
+elseif (UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so)
+    if (USE_CUDA)
+        target_link_libraries(${PROJECT_NAME} ${CUDA_LIBRARIES})
+    endif ()
+elseif (APPLE)
+    target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${ONNXRUNTIME_ROOT}/lib/libonnxruntime.dylib)
 endif ()
 
-# Copy files
-configure_file(${CMAKE_SOURCE_DIR}/coco.yaml ${CMAKE_CURRENT_BINARY_DIR}/coco.yaml COPYONLY)
-configure_file(${CMAKE_SOURCE_DIR}/yolov8n.onnx ${CMAKE_CURRENT_BINARY_DIR}/yolov8n.onnx COPYONLY)
+if (WIN32)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+endif ()
+
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/coco.yaml ${CMAKE_CURRENT_BINARY_DIR}/coco.yaml COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/yolov8n.onnx ${CMAKE_CURRENT_BINARY_DIR}/yolov8n.onnx COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lab_h202.jpg ${CMAKE_CURRENT_BINARY_DIR}/lab_h202.jpg COPYONLY)
+
+# Create 'images' folder in the build directory
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/images
+)

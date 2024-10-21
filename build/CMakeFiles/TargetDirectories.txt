@@ -1,3 +1,0 @@
-/app/build/CMakeFiles/rebuild_cache.dir
-/app/build/CMakeFiles/edit_cache.dir
-/app/build/CMakeFiles/yolov8_onnx_module.dir
