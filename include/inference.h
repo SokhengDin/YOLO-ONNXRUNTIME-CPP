@@ -62,7 +62,7 @@ class YOLO8Onnx
         ~YOLO8Onnx();
 
     public:
-        char* YOLO8Onnx::CreateSession(DL_INIT_PARAM& iParams);
+        char* CreateSession(DL_INIT_PARAM& iParams);
 
         char* RunSession(cv::Mat& iImg, std::vector<DL_RESULT>& oResult);
 
@@ -74,9 +74,8 @@ class YOLO8Onnx
         char* PreProcess(cv::Mat& iImg, std::vector<int> iImgSize, cv::Mat& oImg);
 
         char* ProcessInput(const std::string& input, std::vector<DL_RESULT>& results);
-        
 
-        std::vector<std::string> classes();
+        std::vector<std::string> classes{};
 
     private:
         Ort::Env env;

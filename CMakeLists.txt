@@ -13,7 +13,7 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 # Compile CUDA for FP16 inference if needed
-option(USE_CUDA "Enable CUDA support" ON)
+option(USE_CUDA "Enable CUDA support" OFF)
 if (NOT APPLE AND USE_CUDA)
     find_package(CUDA REQUIRED)
     include_directories(${CUDA_INCLUDE_DIRS})

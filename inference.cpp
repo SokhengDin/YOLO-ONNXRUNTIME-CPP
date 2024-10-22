@@ -273,7 +273,7 @@ char* YOLO8Onnx::TensorProcess(clock_t& starttime_1, cv::Mat& iImg, N& blob, std
             for (int i = 0; i < strideNum; i++)
             {
                 float* classesScores    = data + 4;
-                cv::Mat scores(1, this->classes().size(), CV_32FC1, classesScores);
+                cv::Mat scores(1, this->classes.size(), CV_32FC1, classesScores);  // Changed here
                 cv::Point class_id;
                 double maxClassScore;
 
@@ -340,20 +340,19 @@ char* YOLO8Onnx::TensorProcess(clock_t& starttime_1, cv::Mat& iImg, N& blob, std
             cv::Mat rawData;
             if (modelType == YOLO_CLS)
             {
-                rawData = cv::Mat(1, this->classes().size(), CV_32F, output);
+                rawData = cv::Mat(1, this->classes.size(), CV_32F, output); 
             }
-
-            else {
-                rawData = cv::Mat(1, this->classes().size(), CV_16F, output);
-                rawData.convertTo(rawData, CV_32F);
+            else 
+            {
+                rawData = cv::Mat(1, this->classes.size(), CV_16F, output); 
             }
 
             float *data = (float *) rawData.data;
 
             DL_RESULT result;
-            for (int i = 0; i < this->classes().size(); i++)
+            for (int i = 0; i < this->classes.size(); i++)  
             {
-                result.classId  = i;
+                result.classId = i;
                 result.confidence = data[i];
                 oResult.push_back(result);
             }
