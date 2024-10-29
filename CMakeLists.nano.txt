@@ -1,0 +1,108 @@
+cmake_minimum_required(VERSION 3.5)
+set(PROJECT_NAME Yolo8OnnxRuntimeCPPInference)
+project(${PROJECT_NAME} VERSION 0.0.1 LANGUAGES CXX CUDA)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+
+# OpenCV
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+
+# CUDA is always enabled for Jetson Nano
+set(USE_CUDA ON)
+find_package(CUDA 10.2 REQUIRED)
+include_directories(${CUDA_INCLUDE_DIRS})
+add_definitions(-DUSE_CUDA)
+
+# CUDA architecture settings for Jetson Nano
+set(CMAKE_CUDA_ARCHITECTURES 53)  # Maxwell architecture
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}
+    -gencode arch=compute_53,code=sm_53  # Jetson Nano
+    -O3  # Maximum optimization
+    -use_fast_math
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wno-write-strings)
+endif()
+
+# ONNX Runtime for Jetson Nano (ARM64)
+set(ONNXRUNTIME_VERSION 1.15.1)
+set(ONNXRUNTIME_ROOT "/opt/onnxruntime") 
+
+# Include directories
+include_directories(${PROJECT_NAME} 
+    ${ONNXRUNTIME_ROOT}/include
+    ${CUDA_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Add source files
+set(PROJECT_SOURCES
+    main.cpp
+    inference.cpp
+    input_handler.cpp
+)
+
+add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+
+# Link libraries for Jetson Nano
+target_link_libraries(${PROJECT_NAME}
+    ${OpenCV_LIBS}
+    ${ONNXRUNTIME_ROOT}/build/Linux/Release/libonnxruntime.so
+    cudart
+    cublas
+    cudnn
+    ${CUDA_LIBRARIES}
+)
+
+# Find cuDNN
+find_library(CUDNN_LIBRARY cudnn)
+if(CUDNN_LIBRARY)
+    target_link_libraries(${PROJECT_NAME} ${CUDNN_LIBRARY})
+endif()
+
+# Find TensorRT (optional, if you want to use TensorRT optimization)
+find_path(TENSORRT_INCLUDE_DIR NvInfer.h
+    HINTS ${TENSORRT_ROOT} ${CUDA_TOOLKIT_ROOT_DIR}
+    PATH_SUFFIXES include)
+find_library(TENSORRT_LIBRARY nvinfer
+    HINTS ${TENSORRT_ROOT} ${CUDA_TOOLKIT_ROOT_DIR}
+    PATH_SUFFIXES lib lib64 lib/x64)
+if(TENSORRT_INCLUDE_DIR AND TENSORRT_LIBRARY)
+    include_directories(${TENSORRT_INCLUDE_DIR})
+    target_link_libraries(${PROJECT_NAME} ${TENSORRT_LIBRARY})
+    add_definitions(-DUSE_TENSORRT)
+endif()
+
+# Copy configuration files
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/coco.yaml 
+    ${CMAKE_CURRENT_BINARY_DIR}/coco.yaml COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/yolov8n.onnx 
+    ${CMAKE_CURRENT_BINARY_DIR}/yolov8n.onnx COPYONLY)
+
+# Create required directories
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/images
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/output
+)
+
+# Add optimization flags specific for ARM64
+target_compile_options(${PROJECT_NAME} PRIVATE
+    -march=armv8-a
+    -mcpu=cortex-a57
+    -O3
+    -ffast-math
+    -funsafe-math-optimizations
+    -fomit-frame-pointer
+)
+
+# Optional: Enable link time optimization for better performance
+include(CheckIPOSupported)
+check_ipo_supported(RESULT supported OUTPUT error)
+if(supported)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
