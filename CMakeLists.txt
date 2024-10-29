@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.5)
 set(PROJECT_NAME Yolo8OnnxRuntimeCPPInference)
 project(${PROJECT_NAME} VERSION 0.0.1 LANGUAGES CXX)
 
-# Support C++17 for using filesystem
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
@@ -49,9 +48,11 @@ endif ()
 include_directories(${PROJECT_NAME} ${ONNXRUNTIME_ROOT}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Add source files
 set(PROJECT_SOURCES
     main.cpp
     inference.cpp
+    input_handler.cpp 
 )
 
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
@@ -77,12 +78,12 @@ if (WIN32)
         $<TARGET_FILE_DIR:${PROJECT_NAME}>)
 endif ()
 
-
+# Copy configuration files
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/coco.yaml ${CMAKE_CURRENT_BINARY_DIR}/coco.yaml COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/yolov8n.onnx ${CMAKE_CURRENT_BINARY_DIR}/yolov8n.onnx COPYONLY)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lab_h202.jpg ${CMAKE_CURRENT_BINARY_DIR}/lab_h202.jpg COPYONLY)
 
-# Create 'images' folder in the build directory
+# Create required directories
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/images
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/output  # Added output directory
 )
